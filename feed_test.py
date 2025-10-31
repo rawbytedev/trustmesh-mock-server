@@ -2,7 +2,6 @@ import json
 import time
 from typing import Dict
 import requests
-import pytest
 
 BASE = "http://127.0.0.1:8000"
 
