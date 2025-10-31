@@ -3,6 +3,7 @@ Docstring for feedback_server
 This is the server used by the AI it provides feedback regarding shipments status
 in real use case the shipment provider sets it up to allow Ai to perform queries
 """
+import os
 from fastapi import FastAPI,Request, Form
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -12,11 +13,15 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import Dict, List, Union
 import datetime
+import logging
 
 import uvicorn
 
 
 app = FastAPI(title="TrustMesh Feedback Server")
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+
 # In-memory store for shipments
 shipments: Dict[str, Dict] = {} ## dictionary are mutable
 app.state.debugmode = True ## bool are not so we use app.state
@@ -53,7 +58,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     # Log the real error internally
-    print(f"Unexpected error: {exc}")
+    logging.error(f"Unexpected error: {exc}")
     return JSONResponse(
         status_code=500,
         content={"error": "Internal server error. Please try again later."},
@@ -61,18 +66,18 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 # Peform a single query and reply with shipment details in json
 @app.post("/query")
-def query_shipments(req: QueryRequest)-> ResponseModel:
+async def query_shipments(req: QueryRequest) -> ResponseModel:
     """API endpoint to get shipment details, support both single input or list
     All requests must follow the format `{"ids":"item"}` or `{"ids":["item1","item2"]}`
     """
-    print(f"[VERBOSE] query request was made: {req}")
+    logging.info(f"query request was made: {req}")
     ids = req.ids
-    print("[VERBOSE] Retrieving details from storage")
+    logging.info("Retrieving details from storage")
     if isinstance(ids, str):
         details = [get_shipment_detail(ids)]
     else:
         details = [get_shipment_detail(i) for i in ids]
-    return {"details":details}
+    return ResponseModel(details=details)
 
 # helper function: retrieve shipments from storage
 def get_shipment_detail(ship_id:str)-> dict[str, str]:
@@ -89,15 +94,16 @@ def get_shipment_detail(ship_id:str)-> dict[str, str]:
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     """Entry point of App"""
-    return index({"request":request, "shipments": shipments, "debug":app.state.debugmode})
+    context = {"request": request, "shipments": shipments, "debug": app.state.debugmode}
+    return templates.TemplateResponse("index.html", context=context)
 
 ## Add shipment details from dashboard
 @app.post("/add", response_class=HTMLResponse)
 def add_shipment(request: Request, id:str =Form(...), status:str=Form(...),location:str =Form(...),notes:str=Form("")):
     """Add shipment to storage"""
-    print("[VERBOSE] Adding shipments to storage")
+    logging.info("Adding shipments to storage")
     shipments[id]= {"status":status, "location":location, "notes":notes, "timestamp":timestamp()} 
-    index({"request": request, "shipments":shipments, "debug":app.state.debugmode})
+    logging.info("Shipment added successfully")
     return redirect()
 
 ## toggle debug mode (autoadd)
@@ -106,10 +112,10 @@ def toggle(request: Request):
     """toggle auto-add option"""
     if app.state.debugmode:
         app.state.debugmode = False
-        index({"request": request, "shipments":shipments, "debug":False})
+        logging.info("Debug mode disabled")
         return redirect()
     app.state.debugmode = True
-    index({"request": request, "shipments":shipments, "debug":True})
+    logging.info("Debug mode enabled")
     return redirect()
 
 ## return the status of server
@@ -117,13 +123,6 @@ def toggle(request: Request):
 def health():
     """Check the health status of Server"""
     return {"status": "ok", "shipments_tracked": len(shipments)}
-
-# return to index using custom context
-def index(context: Dict | None = None):
-    """Set the custom context and return to index.html"""
-    if context is None:
-        context = {}
-    return templates.TemplateResponse("index.html", context=context, status_code=200)
 
 ## give current timestamp 
 def timestamp():
@@ -137,7 +136,15 @@ def redirect():
 
 def start_server():
     """Starts the server"""
-    uvicorn.run(app)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+    
+@app.post("/clear", response_class=HTMLResponse)
+def clear(request: Request):
+    """Clear all shipments from storage"""
+    shipments.clear()
+    logging.info("Cleared all shipments from storage")
+    return redirect()
 
 if __name__ == "__main__":
     start_server()
