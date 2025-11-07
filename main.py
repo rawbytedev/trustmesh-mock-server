@@ -21,12 +21,15 @@ import uvicorn
 app = FastAPI(title="TrustMesh Feedback Server")
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+states = ["PENDING","IN-TRANSIT","DELIVERED", "ANOMALY", "DELAY"]
+memory:Dict[str, int]={}
 
 # In-memory store for shipments
 shipments: Dict[str, Dict] = {} ## dictionary are mutable
 app.state.debugmode = True ## bool are not so we use app.state
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+single_delay = 0
 class QueryRequest(BaseModel):
     """This is the Model used to query for shipments"""
     ids: Union[List[str], str] # list
@@ -82,6 +85,10 @@ async def query_shipments(req: QueryRequest) -> ResponseModel:
 # helper function: retrieve shipments from storage
 def get_shipment_detail(ship_id:str)-> dict[str, str]:
     """Retrieve shipment from storage"""
+    if ship_id.__contains__("-n-"):
+        return demo_normalflow(ship_id)
+    if ship_id.__contains__("-xr-"): ## shipment doesn't exist so it expires
+        return {"id":ship_id, "status":"Unknown", "notes":"not available", "location":"Unknown", "timestamp":timestamp()}
     if ship_id in shipments:
         return {"id":ship_id, **shipments[ship_id]}
     else:
@@ -133,6 +140,31 @@ def timestamp():
 def redirect():
     """handle redirections to `/` path; a safe guard against sending same request on reload"""
     return RedirectResponse(url="/", status_code=303)
+
+def demo_normalflow(ship_id:str)-> dict[str, str]:
+    """Hnadle request relate to demo"""
+    global single_delay
+    if ship_id in shipments:
+        ## stop last state
+        if memory[ship_id] == 2:
+            ## trigger a delay
+            if single_delay == 0:
+                memory[ship_id] = memory[ship_id]-1
+                location = shipments[ship_id]['location']
+                notes= shipments[ship_id]['notes']
+                shipments[ship_id] ={"status":states[-1], "location":location, "notes":notes, "timestamp":timestamp()}
+                single_delay = 1
+                return {"id":ship_id, **shipments[ship_id]}
+        if memory[ship_id] == 2:
+            return {"id":ship_id, **shipments[ship_id]}
+        memory[ship_id] = memory[ship_id]+1
+        location = shipments[ship_id]['location']
+        notes= shipments[ship_id]['notes']
+        shipments[ship_id] = {"status":states[memory[ship_id]], "location":location, "notes":notes, "timestamp":timestamp()}
+    else:
+        memory[ship_id] = 0
+        shipments[ship_id] = {"status":states[memory[ship_id]], "location":"NYC", "notes":"notes", "timestamp":timestamp()}
+    return {"id":ship_id, **shipments[ship_id]}
 
 def start_server():
     """Starts the server"""
