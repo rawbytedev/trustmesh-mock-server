@@ -3,6 +3,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
+    "preDeployCommand": ["pytest --maxfail=1 --disable-warnings -q"],
     "startCommand": "python main.py"
   }
 }
