@@ -171,8 +171,8 @@ def start_server():
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
     
-@app.post("/clear", response_class=HTMLResponse)
-def clear(request: Request):
+@app.get("/clear")
+def clear():
     """Clear all shipments from storage"""
     shipments.clear()
     logging.info("Cleared all shipments from storage")
