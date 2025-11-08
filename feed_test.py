@@ -1,6 +1,7 @@
 import json
 import time
 from typing import Dict
+import pytest
 import requests
 
 BASE = "http://127.0.0.1:8000"
@@ -66,3 +67,14 @@ def gethealth():
         return payload.get("status") == "ok"
     except requests.RequestException:
         return False
+    
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_feed():
+    # Setup: Code to run before any tests
+    yield
+    # Teardown: Code to run after all tests
+    try:
+        res = requests.post(f"{BASE}/clean")
+        assert res.status_code == 200
+    except requests.RequestException as e:
+        print(f"Cleanup failed: {e}")
